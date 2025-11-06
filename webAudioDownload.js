@@ -36,21 +36,33 @@
         document.body.innerHTML = `<h1>下载${name}中，请稍等……</h1>`;
 
         // 用fetch才能修改文件名。直接点击的话文件名不对的
-        fetch(src).then(response => {
-            if (!response.ok) throw new Error('Network response was not ok');
-            return response.blob();
-        }).then(blob => {
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = name;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-        }).catch(error => {
-            alert("下载失败", error);
-        });
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', src, true);
+        xhr.responseType = 'blob';
+        xhr.onprogress = function(event) {
+            if (event.lengthComputable) {
+                const percent = ((event.loaded / event.total) * 100).toFixed(2);
+                document.body.innerHTML = `<h1>下载${name}中，进度：${percent}%</h1>`;
+            }
+        };
+        xhr.onload = function() {
+            if (xhr.status === 200) {
+                const url = URL.createObjectURL(xhr.response);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = name;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            } else {
+                alert("下载失败，状态码：" + xhr.status);
+            }
+        };
+        xhr.onerror = function() {
+            alert("下载失败");
+        };
+        xhr.send();
         return; // 直接返回，不再注入后面的代码
     }
 
@@ -59,7 +71,7 @@
 
     // 经测试网易云音乐使用的是document.createElement("audio")，且创建于网页加载时【另外一种方法是new Audio()】
     // 下面对其进行注入，以获取audio对象 为了赶在最前面执行，所以使用document-start
-    console.log("网易云音乐注入");
+    console.log("音频拦截注入");
     function getAudioName(mode = 0b11) {
         // 获取网易云音乐的音频名称
         const play = document.querySelector('.play');
@@ -140,6 +152,7 @@
     }`;
     document.head.appendChild(style);
 
+    // 拦截 new Audio() 方法，但仅仅保存起来，通过window.myaudio访问
     const originAudio = window.Audio;
     window.myaudio = [];
     window.Audio = function() {

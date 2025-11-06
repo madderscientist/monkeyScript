@@ -138,6 +138,9 @@ setTimeout(function () {
                 const msg = data.msg || "成功！";
                 console.log(msg);
                 myconsole.innerText = msg;
+            }).fail(function (jqXHR) {
+                myconsole.innerText = "请求失败：" + jqXHR.status;
+            }).always(() => {
                 flashBtn.disabled = false;
                 submitBtn.disabled = false;
                 getVcode();
