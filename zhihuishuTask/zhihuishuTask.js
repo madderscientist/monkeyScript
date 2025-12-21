@@ -45,7 +45,7 @@ class Question {
                 const historyStr = this.history.map(ansArr => {
                     return ansArr.map(ansId => {
                         const opt = this.options.find(o => o.id === ansId);
-                        return opt ? ("▪"+opt.content) : ansId;
+                        return opt ? ("▪" + opt.content) : ansId;
                     }).join(sep);
                 }).join(`${sep}=========${sep}`);
                 return "暂无答案，错误答案为:" + sep + historyStr;
@@ -53,7 +53,7 @@ class Question {
         } else {
             const answerStr = this.answer.map(ansId => {
                 const opt = this.options.find(o => o.id === ansId);
-                return opt ? ("▪"+opt.content) : ansId;
+                return opt ? ("▪" + opt.content) : ansId;
             }).join(sep);
             return "正确答案为:" + sep + answerStr;
         }
@@ -156,10 +156,13 @@ const originConsolelog = console.log;
 window.questionBank = new QuestionBank();
 
 class AnsParser {
-    static async parse(txt) {
-        const data = JSON.parse(txt).data;
-        originConsolelog(data);
-        const questions = data.questions;
+    // 可以直接传入questions数组
+    static async parse(txt, questions = undefined) {
+        if (questions === undefined) {
+            const data = JSON.parse(txt).data;
+            originConsolelog(data);
+            questions = data.questions;
+        }
         const precessedQuestions = [];
         for (const q of questions) {
             const myAnswer = q.userAnswerVo;
@@ -187,13 +190,25 @@ class AnsParser {
                 qustionObj.answer = ans;
                 qustionObj.history = undefined; // 清空历史错误
             } else {
-                // 错误，记录历史答案
-                if (!qustionObj.history) qustionObj.history = [ans];
-                else qustionObj.history.push(ans);
+                // 错误，记录历史答案，去重
+                let newHistory = Array.isArray(qustionObj.history) ? qustionObj.history.slice() : [];
+                newHistory.push(ans);
+                // 对每个元素排序
+                newHistory = newHistory.map(arr => Array.isArray(arr) ? arr.slice().sort() : arr);
+                // 用字符串化去重
+                const seen = new Set();
+                newHistory = newHistory.filter(arr => {
+                    const key = JSON.stringify(arr);
+                    if (seen.has(key)) return false;
+                    seen.add(key);
+                    return true;
+                });
+                qustionObj.history = newHistory;
             }
             await window.questionBank.saveQuestionToDB(qustionObj);
             originConsolelog('$记录题目', qustionObj.content);
         }
+        if (precessedQuestions.length === 0) return;
         // 网络请求 同步到云端
         fetch(cloudBackendURL + '/questions', {
             method: 'POST',
@@ -209,8 +224,11 @@ class AnsParser {
             }
         }).then(data => {
             originConsolelog('$同步到云端结果', data);
+            if (data.updated + data.appended == 0) return;
+            alert(`同步到云端结果：update: ${data.updated}, skipped: ${data.skipped}, appended: ${data.appended}`);
         }).catch(error => {
             originConsolelog('$同步到云端失败', error);
+            alert('同步到云端失败：' + error.message);
         });
     }
     static targetStr = 'getUserAnswers';
@@ -280,7 +298,12 @@ class QuesParser {
     static clickHandler() {
         QuesParser.currentPage = QuesParser.getCurrentPage();
         if (QuesParser.currentPage < 0) return;
-        if (QuesParser.ans && QuesParser.ans[QuesParser.currentPage]) putText(QuesParser.ans[QuesParser.currentPage].getAnswerStr(), true);
+        if (QuesParser.ans && QuesParser.ans[QuesParser.currentPage]) {
+            const q = QuesParser.ans[QuesParser.currentPage];
+            putText(q.getAnswerStr(), true);
+            const examContainer = Array.from(document.querySelectorAll('.left-box .exam-item'))
+                .find(div => div.style.display !== 'none');
+        }
         else putText('题库无此题答案', true);
     };
     static getCurrentPage() {
@@ -288,6 +311,54 @@ class QuesParser {
         if (!item) return -1;
         const siblings = Array.from(item.parentNode.children);
         return siblings.indexOf(item);
+    }
+    // 应用样式，标记答案
+    static async applyStyle() {
+        let exams = document.querySelectorAll('.left-box .exam-item');
+        while (exams.length != QuesParser.ans.length) {
+            await new Promise(resolve => setTimeout(resolve, 500));
+            exams = document.querySelectorAll('.left-box .exam-item');
+        }
+        for (let i = 0; i < QuesParser.ans.length; i++) {
+            const q = QuesParser.ans[i];
+            const exam = exams[i];
+            if (!q || !exam) continue;
+            if (q.answer === undefined) continue;
+            // 有答案
+            const labels = exam.querySelectorAll('label');
+            const answers = q.answer.map(ansId => {
+                const opt = q.options.find(o => o.id === ansId);
+                return opt ? opt.content : ansId;
+            });
+            for (const label of labels) {
+                const labelText = label.textContent || label.innerText || '';
+                for (const ansText of answers) {
+                    if (labelText.includes(ansText)) {
+                        label.style.borderColor = '#28a745'; // 绿色边框
+                        label.click();
+                        await new Promise(resolve => setTimeout(resolve, 0));
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+class ErrorRecommendParser {
+    static targetStr = "getErrorQuestionRecommend";
+    static parse(txt) {
+        const data = JSON.parse(txt).data;
+        const answers = [];
+        for (const op of data.optionVos) {
+            if (op.isCorrect == 1) answers.push(op.id);
+        }
+        data.userAnswerVo = {
+            answer: answers.join(','),
+            isCorrect: 1
+        }
+        originConsolelog(data);
+        AnsParser.parse('', [data]);
     }
 }
 
@@ -362,8 +433,13 @@ function putText(msg, clear = false) {
                 if (url.includes(AnsParser.targetStr)) {
                     AnsParser.parse(xhr.responseText);
                 } else if (url.includes(QuesParser.targetStr)) {
-                    QuesParser.parse(xhr.responseText);
+                    QuesParser.parse(xhr.responseText).then(() => {
+                        return QuesParser.applyStyle();
+                    });
                     QuesParser.bindEvents();
+                }
+                if (url.includes(ErrorRecommendParser.targetStr)) {
+                    ErrorRecommendParser.parse(xhr.responseText);
                 }
             }
         });

@@ -122,11 +122,12 @@ const server = https.createServer(options, (req, res) => {
         let body = '';
         req.on('data', chunk => body += chunk);
         req.on('end', () => {
-            console.log("Receive");
             try {
                 const result = getQuestions(body);
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify(result));
+                if (result.count == result.skipped) return;
+                console.log(`[${new Date().toISOString()}] ${JSON.stringify(result)}`);
             } catch (err) {
                 res.writeHead(500, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: err.message }));
