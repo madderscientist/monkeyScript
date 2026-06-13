@@ -41,7 +41,7 @@
             "more_btn_container_class": "._77cdc67._8a693f3",
             "more_btn_class": ".ds-icon",
             "delete_btn_class": ".ds-dropdown-menu-option--error",
-            "confirm_btn_class": ".ds-atom-button.ds-basic-button.ds-basic-button--danger"
+            "confirm_btn_class": ".ds-button.ds-button--error"
         };
     else if(window.location.host.includes("doubao"))
         config = {
